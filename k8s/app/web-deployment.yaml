@@ -46,9 +46,10 @@ spec:
               value: production
             - name: PORT
               value: "3000"
+          # Cau hinh nho (t3.large 2 CPU): requests 100m/Pod, 2 Pod = 200m.
           resources:
             requests:
-              cpu: 200m
+              cpu: 100m
               memory: 256Mi
             limits:
               cpu: 1

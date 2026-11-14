@@ -44,9 +44,13 @@ helm upgrade --install longhorn longhorn/longhorn \
 wait_pods_ready longhorn-system app=longhorn-manager 600s
 
 log "3/4 Cai PXC Operator..."
+# watchAllNamespaces=true la BAT BUOC: mac dinh Operator chi theo doi namespace
+# cua chinh no (WATCH_NAMESPACE=pxc-operator), CR cluster1 nam o namespace
+# production se bi bo qua hoan toan (STATUS trong, khong co event, khong Pod).
 helm upgrade --install pxc-operator percona/pxc-operator \
   --namespace pxc-operator --create-namespace \
-  --version "$PXC_OPERATOR_CHART_VERSION"
+  --version "$PXC_OPERATOR_CHART_VERSION" \
+  --set watchAllNamespaces=true
 wait_pods_ready pxc-operator app.kubernetes.io/name=pxc-operator 300s
 
 log "4/4 Cai Fluent Bit (DaemonSet thu log)..."

@@ -1,19 +1,27 @@
 # Values cho Helm chart percona/pxc-db (release cluster1) — guide muc 6.3.
 # Dieu chinh cho test tren 1 EC2 duy nhat (ghi chu ro cho nao khac guide goc):
 # - Moi MySQL PVC 10Gi thay vi 100Gi (tang sau duoc).
-# - PXC limits 1 CPU / 2Gi thay vi 2 CPU / 4Gi (vua instance t3.xlarge).
+# - PXC limits 1 CPU / 2Gi thay vi 2 CPU / 4Gi (vua instance nho).
+# - CAU HINH NHO (t3.large 2 CPU/8GB): PXC chi 1 Pod (size: 1), ProxySQL
+#   1 Pod, requests CPU giam (PXC 200m). Galera 1 node khong co quorum
+#   that — mat Pod la mat DB cho toi khi Pod khoi dong lai (du lieu van
+#   con tren PVC). Chi de test chuc nang, khong phai HA.
 # - KHONG dat anti-affinity theo hostname: guide goc ep moi PXC/HAProxy Pod
 #   tren 1 node khac nhau (can 3 node). Chi co 1 node nen de anti-affinity
-#   thi 2/3 PXC Pod se Pending mai. Ca 3 PXC Pod cung chay tren 1 node —
-#   Galera quorum van hoat dong ve logic, nhung mat node la mat ca cum
-#   (khong co HA that, chi de test chuc nang).
+#   thi Pod se Pending mai.
 # - backup.enabled=false: guide goc bat backup nhung chua co storage S3,
 #   de true khi chua cau hinh storage se lam Operator bao loi. Bat backup
 #   sau theo k8s/backup/pxc-backup-values.yaml.
-# - proxysql tat vi chi dung HAProxy (guide cung chi dung HAProxy).
+# - Dung ProxySQL thay HAProxy (doi 14/11): HAProxy external-check bi ket
+#   (tien trinh con fork ra spin ~50% CPU, khong exec duoc script check,
+#   server mai DOWN, Pod khong Ready) ngay ca khi worker chi con 1 thread
+#   (nbthread 1) — loi nam o co che fork/exec trong moi truong nay, khong
+#   sua duoc bang config. ProxySQL tu kiem tra MySQL bang ket noi truc
+#   tiep, khong fork script nen khong gap loi nay. DB_HOST doi sang
+#   cluster1-proxysql (xem k8s/app/app-secret.yaml, k8s/db/db-init-job.yaml).
 # - fullnameOverride: cluster1 — QUAN TRONG. Neu khong dat, chart tu ghep
 #   ten release + ten chart thanh "cluster1-pxc-db" lam ten CR
-#   PerconaXtraDBCluster, keo theo Service "cluster1-pxc-db-haproxy",
+#   PerconaXtraDBCluster, keo theo Service "cluster1-pxc-db-proxysql",
 #   Pod "cluster1-pxc-db-pxc-0" va secretsName "cluster1-pxc-db-secrets"
 #   (chart suy ra ten Secret tu fullname) — lech voi DB_HOST trong
 #   app-secret.yaml, voi Secret cluster1-secrets da tao san, va voi moi
@@ -22,8 +30,17 @@
 #   CR ten cluster1 va secretsName dung cluster1-secrets.
 fullnameOverride: cluster1
 
+# unsafeFlags — BAT BUOC cho cau hinh nho. Operator tu choi chay PXC
+# duoi 3 Pod va proxy (ProxySQL) duoi 2 Pod neu khong bat 2 co nay
+# ("PXC size must be at least 3. Set spec.unsafeFlags.pxcSize to true").
+# Chi dung cho test: Galera 1 node khong co quorum that, mat Pod la
+# mat DB toi khi Pod khoi dong lai (du lieu van con tren PVC).
+unsafeFlags:
+  pxcSize: true
+  proxySize: true
+
 pxc:
-  size: 3
+  size: 1  # Cau hinh nho: 1 Pod DB, 1 PVC datadir (xem ghi chu o dau file).
   image:
     repository: percona/percona-xtradb-cluster
     tag: "8.0"
@@ -33,15 +50,32 @@ pxc:
     size: 10Gi
   resources:
     requests:
-      cpu: 500m
+      # 200m de vua node 2 CPU (da dung ~1490m cho he thong); limits van
+      # 1 CPU nen MySQL van burst duoc khi node con CPU trong.
+      cpu: 200m
       memory: 1Gi
     limits:
       cpu: 1
       memory: 2Gi
 
+# logcollector.enabled=false — QUAN TRONG cho test tren 1 node. Mac dinh
+# chart bat logcollector, moi PXC Pod mang them 2 sidecar (logs +
+# logrotate) xin 200m CPU moi cai, tuc moi Pod xin tong 900m thay vi
+# 500m; 3 Pod la 2700m — vuot qua CPU con trong cua node ngay ca tren
+# t3.xlarge (khoang 2410m sau khi tru Longhorn/Calico/control-plane/
+# Ingress). Tat di thi moi Pod chi xin 500m (tong 1500m). Khong mat log:
+# Fluent Bit DaemonSet (muc 3) da thu log cua moi Pod trong cluster.
+logcollector:
+  enabled: false
+
 haproxy:
+  enabled: false  # Tat 14/11: external-check bi ket (xem ghi chu o dau file). Dung ProxySQL thay the.
+
+proxysql:
   enabled: true
-  size: 2
+  size: 1  # Cau hinh nho: 1 Pod ProxySQL.
+  persistence:
+    size: 1Gi  # Mac dinh 8Gi — qua lon cho disk 30G (datadir 10Gi + shared 5Gi + proxydata 8Gi = 23Gi dat truoc, Longhorn khong du cho tao replica). ProxySQL chi luu config/query rule/thong ke nen 1Gi la du.
   resources:
     requests:
       cpu: 100m
@@ -49,9 +83,6 @@ haproxy:
     limits:
       cpu: 500m
       memory: 256Mi
-
-proxysql:
-  enabled: false
 
 backup:
   enabled: false

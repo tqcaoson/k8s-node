@@ -38,9 +38,10 @@ spec:
                 # nay bang $IMAGE giong nhu image cua container).
                 - name: APP_IMAGE
                   value: my-nodejs-app:v1
+              # Cau hinh nho (t3.large 2 CPU): dispatcher chi xin 100m.
               resources:
                 requests:
-                  cpu: 200m
+                  cpu: 100m
                   memory: 256Mi
                 limits:
                   cpu: 1

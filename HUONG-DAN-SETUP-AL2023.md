@@ -70,9 +70,22 @@ Chỉ cần **1 EC2 duy nhất**. Yêu cầu:
 | --- | --- |
 | AMI | **Amazon Linux 2023** (AMI chuẩn của AWS, kiến trúc x86_64), rỗng (chưa cài gì) |
 | Loại instance | **t3.xlarge** (4 vCPU, 16 GB) trở lên — 3 Pod PXC + Longhorn + web + ingress cùng chạy trên 1 node nên t3.large (8 GB) sẽ chật. Có điều kiện thì dùng t3.2xlarge cho thoải mái |
-| Disk | 50 GB gp3 trở lên (Longhorn dùng thư mục `/var/lib/longhorn` trên disk root) |
+| Disk | **30 GB gp3 trở lên** (đã kiểm chứng chạy được với cấu hình nhỏ; 50 GB thì thoải mái hơn). Longhorn dùng thư mục `/var/lib/longhorn` trên disk root — Longhorn tính dung lượng theo size PVC đã đặt trước (10Gi DB + 5Gi shared-data = 15Gi), nên disk chật sẽ làm volume mới bị `faulted` (xem mục 10 của guide chính) |
 | Public IP | Có (để SSH và để truy cập web qua NodePort) |
 | Security Group | Mở **22** (SSH) và **30080, 30443** (Ingress NodePort HTTP/HTTPS) từ IP của bạn (hoặc 0.0.0.0/0 nếu muốn mở rộng). Không cần mở thêm cổng nào khác vì chỉ có 1 node. **Đừng mở 3306** — MySQL chỉ truy cập trong cluster |
+
+> **Cấu hình nhỏ (mặc định của project này, cho t3.large 2 CPU/8GB):**
+> PXC **1 Pod** (`pxc.size: 1`, requests 200m) + HAProxy **1 Pod**, web
+> **2 Pod** × 100m, dispatcher 100m, `logcollector` tắt, CoreDNS giảm
+> xuống **1 replica** (`kubectl -n kube-system scale deployment coredns
+> --replicas=1`). Chỉ có **1 PVC** dữ liệu DB (`datadir-cluster1-pxc-0`).
+> Hệ quả so với guide chính: kiểm tra Galera ở mục 7 sẽ thấy
+> `wsrep_cluster_size=1` (không phải 3); **không có test failover**
+> (1 Pod — xóa Pod là DB ngừng tới khi Pod khởi động lại, dữ liệu vẫn
+> còn trên PVC); HPA tối đa 4 Pod nhưng Pod web thứ 4 có thể Pending vì
+> hết CPU. Muốn cấu hình đầy đủ (3 Pod PXC) thì dùng t3.xlarge trở lên
+> và trả lại `pxc.size: 3`, `haproxy.size: 2` trong
+> `k8s/db/pxc-values.yaml`.
 
 ### Copy project lên EC2
 
@@ -511,9 +524,13 @@ helm install longhorn longhorn/longhorn \
   --set defaultSettings.defaultReplicaCount=1
 
 # 3. PXC Operator (quan ly cluster MySQL o muc 5 cua guide chinh):
+# --set watchAllNamespaces=true la BAT BUOC: mac dinh Operator chi theo doi
+# namespace cua chinh no (WATCH_NAMESPACE=pxc-operator), CR cluster1 nam o
+# namespace production se bi bo qua hoan toan (STATUS trong, khong co event).
 helm install pxc-operator percona/pxc-operator \
   --namespace pxc-operator --create-namespace \
-  --version 1.17.0
+  --version 1.17.0 \
+  --set watchAllNamespaces=true
 
 # 4. Fluent Bit (DaemonSet thu log):
 helm install fluent-bit fluent/fluent-bit \
@@ -568,6 +585,11 @@ khi sang mục 5 của guide chính (nên dùng access token thay vì mật kh�
 DockerHub → Account Settings → Personal Access Tokens → Generate):
 
 ```bash
+# Tao namespace truoc — Secret nam trong namespace production, ma namespace
+# nay chi duoc tao o muc 5 neu khong tao o day (thieu buoc nay se loi
+# "namespaces production not found"). Tao som khong anh huong gi: muc 5
+# apply lai cung file nay, kubectl apply la idempotent.
+kubectl apply -f k8s/00-namespace.yaml
 kubectl create secret docker-registry dockerhub-pull \
   --docker-server=https://index.docker.io/v1/ \
   --docker-username=<dockerhub-user> \
@@ -575,9 +597,6 @@ kubectl create secret docker-registry dockerhub-pull \
   --namespace production \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
-
-(Lệnh này cần namespace `production` tồn tại — nếu chưa có, tạo trước
-bằng `kubectl create namespace production`.)
 
 → Chạy nhanh: `./scripts-al2023/04-build-push.sh` (build + push),
 `DOCKERHUB_USER=<user> ./scripts-al2023/08-dockerhub-secret.sh`

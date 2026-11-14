@@ -22,7 +22,7 @@ spec:
           command: ["node", "src/init-db.js"]
           env:
             - name: DB_HOST
-              value: cluster1-haproxy.production.svc.cluster.local
+              value: cluster1-proxysql.production.svc.cluster.local
             - name: DB_PORT
               value: "3306"
             - name: DB_NAME
