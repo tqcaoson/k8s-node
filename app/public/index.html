@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quản lý công việc — K8s Web Demo</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <h1>📋 Quản lý công việc</h1>
+  <p class="sub">Web Node.js chạy trên Kubernetes · MySQL PXC (Galera) · Dữ liệu lưu trong bảng <code>tasks</code></p>
+  <p id="health" class="health">Đang kiểm tra kết nối database…</p>
+
+  <section class="card">
+    <h2 id="form-title">Thêm công việc</h2>
+    <form id="task-form">
+      <input type="hidden" id="task-id">
+      <label>Tiêu đề *<input id="title" maxlength="255" required placeholder="VD: Test failover MySQL"></label>
+      <label>Mô tả<textarea id="description" rows="2" placeholder="Ghi chú thêm (không bắt buộc)"></textarea></label>
+      <label>Trạng thái
+        <select id="status">
+          <option value="todo">Chưa làm</option>
+          <option value="doing">Đang làm</option>
+          <option value="done">Đã xong</option>
+        </select>
+      </label>
+      <div class="row">
+        <button type="submit" id="submit-btn">Thêm</button>
+        <button type="button" id="cancel-btn" hidden>Hủy sửa</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="row between">
+      <h2>Danh sách</h2>
+      <div class="row">
+        <input id="search" placeholder="Tìm theo tiêu đề…" size="22">
+        <select id="filter">
+          <option value="">Tất cả trạng thái</option>
+          <option value="todo">Chưa làm</option>
+          <option value="doing">Đang làm</option>
+          <option value="done">Đã xong</option>
+        </select>
+        <button id="refresh-btn" type="button">Tải lại</button>
+      </div>
+    </div>
+    <p id="error" class="error" hidden></p>
+    <table>
+      <thead><tr><th>ID</th><th>Tiêu đề</th><th>Mô tả</th><th>Trạng thái</th><th>Cập nhật</th><th></th></tr></thead>
+      <tbody id="task-list"></tbody>
+    </table>
+    <p id="empty" hidden>Chưa có công việc nào. Thêm một việc ở form trên nhé.</p>
+  </section>
+
+  <section class="card">
+    <h2>Test thư mục dùng chung (PVC RWX)</h2>
+    <p class="sub">Ghi file từ Pod này, Pod khác đọc được — chứng minh shared-data hoạt động.</p>
+    <div class="row">
+      <input id="shared-content" value="hello từ web" size="30">
+      <button id="shared-write-btn" type="button">Ghi file demo.txt</button>
+      <button id="shared-read-btn" type="button">Đọc file demo.txt</button>
+    </div>
+    <pre id="shared-result"></pre>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

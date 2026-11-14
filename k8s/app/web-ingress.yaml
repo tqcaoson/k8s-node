@@ -1,0 +1,25 @@
+# Ingress — guide muc 8.3.
+# Host app.example.com la placeholder: scripts/05-deploy.sh se thay bang
+# $DOMAIN (mac dinh: <IP-public-cua-EC2>.nip.io, khong can mua domain).
+# Neu dung domain that, sua host nay hoac truyen DOMAIN khi chay script.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nodejs-ingress
+  namespace: production
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "20m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nodejs-service
+                port:
+                  name: http

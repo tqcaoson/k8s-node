@@ -1,0 +1,14 @@
+# PVC dung chung RWX cho Web va Job — guide muc 5.4.
+# Test tren EC2: 5Gi (guide goc 100Gi). Tang sau duoc nho allowVolumeExpansion.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-data
+  namespace: production
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: longhorn-shared
+  resources:
+    requests:
+      storage: 5Gi

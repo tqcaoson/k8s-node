@@ -1,0 +1,18 @@
+# Values cho Fluent Bit — guide muc 11.
+# Mac dinh: output ra stdout (xem log bang kubectl logs -n logging).
+# Neu da cai Loki trong cluster, bo comment khoi outputs ben duoi va chay:
+#   helm upgrade --install fluent-bit fluent/fluent-bit -n logging -f k8s/logging/fluent-bit-values.yaml
+config:
+  outputs: |
+    [OUTPUT]
+        Name        stdout
+        Match       kube.*
+# Vi du gui sang Loki:
+# config:
+#   outputs: |
+#     [OUTPUT]
+#         Name        loki
+#         Match       kube.*
+#         Host        loki.logging.svc.cluster.local
+#         Port        3100
+#         Labels      job=fluent-bit

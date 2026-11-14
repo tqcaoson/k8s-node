@@ -1,0 +1,57 @@
+# Values cho Helm chart percona/pxc-db (release cluster1) — guide muc 6.3.
+# Dieu chinh cho test tren 1 EC2 duy nhat (ghi chu ro cho nao khac guide goc):
+# - Moi MySQL PVC 10Gi thay vi 100Gi (tang sau duoc).
+# - PXC limits 1 CPU / 2Gi thay vi 2 CPU / 4Gi (vua instance t3.xlarge).
+# - KHONG dat anti-affinity theo hostname: guide goc ep moi PXC/HAProxy Pod
+#   tren 1 node khac nhau (can 3 node). Chi co 1 node nen de anti-affinity
+#   thi 2/3 PXC Pod se Pending mai. Ca 3 PXC Pod cung chay tren 1 node —
+#   Galera quorum van hoat dong ve logic, nhung mat node la mat ca cum
+#   (khong co HA that, chi de test chuc nang).
+# - backup.enabled=false: guide goc bat backup nhung chua co storage S3,
+#   de true khi chua cau hinh storage se lam Operator bao loi. Bat backup
+#   sau theo k8s/backup/pxc-backup-values.yaml.
+# - proxysql tat vi chi dung HAProxy (guide cung chi dung HAProxy).
+# - fullnameOverride: cluster1 — QUAN TRONG. Neu khong dat, chart tu ghep
+#   ten release + ten chart thanh "cluster1-pxc-db" lam ten CR
+#   PerconaXtraDBCluster, keo theo Service "cluster1-pxc-db-haproxy",
+#   Pod "cluster1-pxc-db-pxc-0" va secretsName "cluster1-pxc-db-secrets"
+#   (chart suy ra ten Secret tu fullname) — lech voi DB_HOST trong
+#   app-secret.yaml, voi Secret cluster1-secrets da tao san, va voi moi
+#   lenh trong guide/script (deu dung cluster1-*). Da kiem chung bang
+#   `helm template` voi chart 1.17.0: dat fullnameOverride: cluster1 thi
+#   CR ten cluster1 va secretsName dung cluster1-secrets.
+fullnameOverride: cluster1
+
+pxc:
+  size: 3
+  image:
+    repository: percona/percona-xtradb-cluster
+    tag: "8.0"
+  persistence:
+    enabled: true
+    storageClass: longhorn-db
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1
+      memory: 2Gi
+
+haproxy:
+  enabled: true
+  size: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+proxysql:
+  enabled: false
+
+backup:
+  enabled: false

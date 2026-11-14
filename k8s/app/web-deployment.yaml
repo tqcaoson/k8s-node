@@ -1,0 +1,82 @@
+# Deployment web — guide muc 8.1.
+# Image my-nodejs-app:v1 la placeholder: scripts/05-deploy.sh se thay bang
+# $IMAGE (vd: <dockerhub-user>/k8s-web-demo:v1) truoc khi apply.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nodejs-web
+  namespace: production
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: nodejs-web
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: nodejs-web
+    spec:
+      # __IMAGE_PULL_SECRETS__
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: nodejs-web
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: nodejs
+          image: my-nodejs-app:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - secretRef:
+                name: app-secret
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3000"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1
+              memory: 512Mi
+          # readiness dung /readyz (kiem tra MySQL), liveness dung /healthz
+          # (chi kiem tra process). Guide goc dung /healthz cho ca hai —
+          # tach ra de mat DB khong lam K8s restart Pod lien tuc.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: temp
+              mountPath: /app/tmp
+            - name: shared
+              mountPath: /app/shared
+      volumes:
+        - name: temp
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: shared
+          persistentVolumeClaim:
+            claimName: shared-data

@@ -1,0 +1,26 @@
+# Cho phep dispatcher (CronJob task-worker) goi Kubernetes API de tao Job
+# xu ly task. Khong co rule nay, default-deny se chan dispatcher noi toi
+# API server (kube-apiserver chay dang static Pod o namespace kube-system).
+# Processor Job (app=task-processor) khong can goi API nen khong co rule nay.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dispatcher-to-apiserver
+  namespace: production
+spec:
+  podSelector:
+    matchLabels:
+      app: task-worker
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              component: kube-apiserver
+      ports:
+        - protocol: TCP
+          port: 443

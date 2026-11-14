@@ -1,0 +1,42 @@
+# Chay thu app + MySQL tren may local (khong can K8s) de test CRUD truoc
+# khi dua len EC2. Mat khau khop voi env da fix san trong K8s.
+# Chay: docker compose up --build
+# Mo:  http://localhost:3000
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: k8s-demo-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: PxcRoot123!
+      MYSQL_DATABASE: appdb
+      MYSQL_USER: app
+      MYSQL_PASSWORD: AppPass123!
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "app", "-pAppPass123!"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: ./app
+    container_name: k8s-demo-app
+    environment:
+      PORT: "3000"
+      NODE_ENV: development
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: appdb
+      DB_USER: app
+      DB_PASSWORD: AppPass123!
+    ports:
+      - "3000:3000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql_data:

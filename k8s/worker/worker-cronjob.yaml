@@ -1,0 +1,59 @@
+# CronJob dispatcher moi 5 phut — guide muc 9.
+# Cung image voi web, ghi de command thanh dispatcher (src/worker.js):
+# lay task 'todo' roi tao 1 K8s Job xu ly tung task (src/process-task.js).
+# Can ServiceAccount task-dispatcher (dispatcher-rbac.yaml) de co quyen tao Job.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: task-worker
+  namespace: production
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 600
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app: task-worker
+        spec:
+          # __IMAGE_PULL_SECRETS__
+          restartPolicy: Never
+          serviceAccountName: task-dispatcher
+          containers:
+            - name: worker
+              image: my-nodejs-app:v1
+              imagePullPolicy: IfNotPresent
+              command: ["node", "src/worker.js"]
+              envFrom:
+                - secretRef:
+                    name: app-secret
+              env:
+                # Image de dispatcher tao Job xu ly (script 05 thay placeholder
+                # nay bang $IMAGE giong nhu image cua container).
+                - name: APP_IMAGE
+                  value: my-nodejs-app:v1
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 256Mi
+                limits:
+                  cpu: 1
+                  memory: 1Gi
+              volumeMounts:
+                - name: temp
+                  mountPath: /app/tmp
+                - name: shared
+                  mountPath: /app/shared
+          volumes:
+            - name: temp
+              emptyDir:
+                sizeLimit: 2Gi
+            - name: shared
+              persistentVolumeClaim:
+                claimName: shared-data

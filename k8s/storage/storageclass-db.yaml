@@ -1,0 +1,16 @@
+# StorageClass cho database (RWO) — guide muc 5.1.
+# Single-node: numberOfReplicas "1" (guide goc "3" can 3 node; 1 node ma
+# de 3 thi replica khong co cho dat, volume bi degraded). Mat node la mat
+# du lieu — chap nhan duoc khi test, khong dung cho production.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-db
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "1"
+  dataLocality: "disabled"
+  fsType: "ext4"

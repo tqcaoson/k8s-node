@@ -1,0 +1,7 @@
+# Namespace cho toan bo ung dung (guide muc 2).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    name: production

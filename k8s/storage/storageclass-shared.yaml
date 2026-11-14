@@ -1,0 +1,14 @@
+# StorageClass cho shared storage (RWX) — guide muc 5.2.
+# Single-node: numberOfReplicas "1" (ly do nhu storageclass-db).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-shared
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "1"
+  fsType: "ext4"
+  nfsOptions: "vers=4.1,noresvport"

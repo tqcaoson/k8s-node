@@ -1,0 +1,28 @@
+# Kustomize cho cac manifest tinh (sau khi platform Helm da cai xong).
+# Luu y: 2 Job db-init/db-migrate KHONG nam trong nay vi phai chay theo
+# dung thu tu (sau khi PXC Ready) — scripts/05-deploy.sh lo viec do.
+# Neu muon apply tay: kubectl apply -k k8s/ (van can chay Job theo guide).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 00-namespace.yaml
+  - storage/storageclass-db.yaml
+  - storage/storageclass-shared.yaml
+  - storage/pvc-shared.yaml
+  - db/pxc-secrets.yaml
+  - app/app-secret.yaml
+  - app/web-deployment.yaml
+  - app/web-service.yaml
+  - app/web-ingress.yaml
+  - app/web-hpa.yaml
+  - worker/dispatcher-rbac.yaml
+  - worker/worker-cronjob.yaml
+  # NetworkPolicy bat sau cung khi da kiem tra xong — bo comment khi can:
+  # - networkpolicy/netpol-default-deny.yaml
+  # - networkpolicy/netpol-allow-dns.yaml
+  # - networkpolicy/netpol-web-ingress.yaml
+  # - networkpolicy/netpol-app-to-db.yaml
+  # - networkpolicy/netpol-app-egress-db.yaml
+  # - networkpolicy/netpol-pxc-internal.yaml
+  # - networkpolicy/netpol-dispatcher-api.yaml

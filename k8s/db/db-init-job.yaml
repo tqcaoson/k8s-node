@@ -1,0 +1,50 @@
+# Job tao database appdb + user app (thay lenh mysql chay tay o guide muc 6.5).
+# Chay sau khi PXC Ready. Script src/init-db.js tu thu lai neu MySQL chua san sang.
+# backoffLimit cao vi PXC co the mat vai phut moi nhan ket noi.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-init
+  namespace: production
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: db-init
+    spec:
+      # __IMAGE_PULL_SECRETS__
+      restartPolicy: Never
+      containers:
+        - name: init-db
+          image: my-nodejs-app:v1
+          command: ["node", "src/init-db.js"]
+          env:
+            - name: DB_HOST
+              value: cluster1-haproxy.production.svc.cluster.local
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_NAME
+              value: appdb
+            - name: DB_USER
+              value: app
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: DB_PASSWORD
+            - name: DB_ROOT_USER
+              value: root
+            - name: DB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cluster1-secrets
+                  key: root
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

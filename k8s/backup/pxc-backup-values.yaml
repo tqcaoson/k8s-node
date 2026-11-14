@@ -1,0 +1,21 @@
+# Backup PXC ra S3 (MinIO hoac S3 that) — guide muc 13.1. TUY CHON.
+# Cach dung:
+#   1. Dien dung endpoint/bucket ben duoi va tao Secret backup-s3-secret
+#      theo file backup-s3-secret.yaml.example.
+#   2. helm upgrade cluster1 percona/pxc-db -n production \
+#        -f k8s/db/pxc-values.yaml -f k8s/backup/pxc-backup-values.yaml
+# Luu y: backup chi co gia tri khi da restore thu dinh ky.
+backup:
+  enabled: true
+  storages:
+    s3-backup:
+      type: s3
+      s3:
+        bucket: pxc-backups
+        endpointUrl: http://minio.backup-host.local:9000
+        credentialsSecret: backup-s3-secret
+  schedule:
+    - name: daily-backup
+      schedule: "0 2 * * *"
+      keep: 7
+      storageName: s3-backup

@@ -1,0 +1,32 @@
+# Job migrate + seed: tao bang tasks va nap 5 dong mau (src/migrate.js).
+# Chay sau db-init. Web cung tu migrate luc khoi dong nen Job nay la lop
+# dam bao them — neu Job chay xong thi chac chan bang da co truoc khi mo web.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  namespace: production
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: db-migrate
+    spec:
+      # __IMAGE_PULL_SECRETS__
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: my-nodejs-app:v1
+          command: ["node", "src/migrate.js"]
+          envFrom:
+            - secretRef:
+                name: app-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
