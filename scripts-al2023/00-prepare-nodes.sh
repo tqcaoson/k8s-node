@@ -85,3 +85,6 @@ ctr version | head -1
 getenforce
 systemctl is-active iscsid containerd
 
+echo
+log "Buoc tiep: sudo ./scripts-al2023/01-init-control-plane.sh (khoi tao cluster)"
+

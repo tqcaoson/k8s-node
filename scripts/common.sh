@@ -14,6 +14,17 @@ need_cmd() {
 wait_pods_ready() {
   local namespace="$1" selector="$2" timeout="${3:-600s}"
   log "Doi Pod san sang (ns=$namespace, selector=$selector, toi da $timeout)..."
+  # kubectl wait loi ngay "no matching resources found" neu luc goi chua co
+  # Pod nao khop selector (Pod duoc tao khong dong bo sau khi helm tra ve).
+  # Doi Pod xuat hien truoc roi moi wait.
+  local waited=0
+  while ! kubectl get pods -l "$selector" -n "$namespace" -o name 2>/dev/null | grep -q .; do
+    if [ "$waited" -ge 180 ]; then
+      die "Khong thay Pod nao (ns=$namespace, selector=$selector) sau 180s. Kiem tra: kubectl -n $namespace get pods --show-labels"
+    fi
+    sleep 5
+    waited=$((waited + 5))
+  done
   kubectl wait --for=condition=ready pod -l "$selector" -n "$namespace" --timeout="$timeout"
 }
 

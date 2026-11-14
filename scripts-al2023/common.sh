@@ -10,6 +10,11 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Thieu lenh '$1'. Hay cai truoc khi chay script nay."
 }
 
+# Kiem tra kubectl noi duoc cluster (tranh chay cac buoc sau khi cluster chua len).
+need_cluster() {
+  kubectl cluster-info >/dev/null 2>&1 || die "kubectl khong noi duoc cluster. Hay chay buoc 01 (kubeadm init) truoc, roi kiem tra: kubectl get nodes"
+}
+
 # Doi Pod co label selector san sang trong namespace.
 wait_pods_ready() {
   local namespace="$1" selector="$2" timeout="${3:-600s}"

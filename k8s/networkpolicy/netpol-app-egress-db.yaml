@@ -19,7 +19,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: haproxy
+              app.kubernetes.io/component: proxysql
       ports:
         - protocol: TCP
           port: 3306

@@ -11,7 +11,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/component: haproxy
+      app.kubernetes.io/component: proxysql
   policyTypes:
     - Ingress
     - Egress

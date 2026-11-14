@@ -71,22 +71,30 @@ kubectl apply -f "$ROOT_DIR/k8s/storage/pvc-shared.yaml"
 kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/shared-data -n production --timeout=300s
 log "PVC shared-data: Bound."
 
-log "=== 2/7 PXC cluster (3 MySQL Pod + 2 HAProxy) ==="
+log "=== 2/7 PXC cluster (cau hinh nho: 1 MySQL Pod + 1 ProxySQL) ==="
 kubectl apply -f "$ROOT_DIR/k8s/db/pxc-secrets.yaml"
 helm upgrade --install cluster1 percona/pxc-db \
   --namespace production \
   --version "$PXC_DB_CHART_VERSION" \
   -f "$ROOT_DIR/k8s/db/pxc-values.yaml"
-log "Doi PXC Ready (co the mat 5-15 phut lan dau, PXC phai khoi tao Galera)..."
+log "Doi PXC Ready (co the mat vai phut lan dau, PXC phai khoi tao Galera)..."
 for i in $(seq 1 90); do
   STATE="$(kubectl -n production get pxc cluster1 -o jsonpath='{.status.state}' 2>/dev/null || echo '')"
   if [ "$STATE" = "Ready" ]; then
     log "PXC Ready."
     break
   fi
+  # Fail nhanh neu cluster roi vao trang thai error (vd thieu unsafeFlags
+  # cho cau hinh nho) thay vi doi het 15 phut moi bao loi.
+  if [ "$STATE" = "error" ]; then
+    echo "--- Trang thai PXC ---" >&2
+    kubectl -n production get pxc cluster1 -o jsonpath='{.status.message}' >&2 || true
+    echo >&2
+    die "PXC roi vao trang thai error. Kiem tra: kubectl -n production describe pxc cluster1; kubectl -n pxc-operator logs deployment/pxc-operator --tail=50"
+  fi
   [ $((i % 6)) -eq 0 ] && log "... dang cho PXC (trang thai hien tai: ${STATE:-chua co}, lan $i/90)"
   sleep 10
-  [ "$i" -eq 90 ] && die "PXC chua Ready sau 15 phut. Kiem tra: kubectl -n production get pxc,pods,pvc"
+  [ "$i" -eq 90 ] && die "PXC chua Ready sau 15 phut. Kiem tra: kubectl -n production get pxc,pods,pvc; kubectl -n production describe pxc cluster1; neu Pod cu Pending mai sau khi doi values thi xoa Pod tay de StatefulSet tao lai: kubectl -n production delete pod cluster1-pxc-0"
 done
 
 log "=== 3/7 Tao database appdb + user app (Job db-init) ==="

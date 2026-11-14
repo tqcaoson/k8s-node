@@ -23,7 +23,15 @@ done
 
 need_cmd kubectl
 need_cmd helm
+need_cluster
 [ -n "${IMAGE:-}" ] || die "Chua dat bien IMAGE (image da push o buoc 04). VD: IMAGE=<dockerhub-user>/k8s-web-demo:v1 $0"
+
+# Kiem tra tien quyet: PXC Operator phai duoc cai o buoc 03 (neu khong, CRD
+# PerconaXtraDBCluster chua ton tai va helm install PXC se loi kho hieu).
+kubectl get crd perconaxtradbclusters.pxc.percona.com >/dev/null 2>&1 \
+  || die "Chua co CRD PerconaXtraDBCluster — PXC Operator chua duoc cai. Hay chay scripts-al2023/03-install-platform.sh truoc."
+kubectl -n pxc-operator get pods -l app.kubernetes.io/name=pxc-operator --field-selector=status.phase=Running -o name 2>/dev/null | grep -q . \
+  || die "PXC Operator chua Running. Kiem tra: kubectl -n pxc-operator get pods"
 
 # --- Xac dinh domain ---
 if [ -z "${DOMAIN:-}" ]; then
@@ -71,7 +79,7 @@ kubectl apply -f "$ROOT_DIR/k8s/storage/pvc-shared.yaml"
 kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/shared-data -n production --timeout=300s
 log "PVC shared-data: Bound."
 
-log "=== 2/7 PXC cluster (3 MySQL Pod + 2 HAProxy) ==="
+log "=== 2/7 PXC cluster (1 Pod PXC + 1 Pod ProxySQL — cau hinh nho) ==="
 kubectl apply -f "$ROOT_DIR/k8s/db/pxc-secrets.yaml"
 helm upgrade --install cluster1 percona/pxc-db \
   --namespace production \
@@ -83,6 +91,14 @@ for i in $(seq 1 90); do
   if [ "$STATE" = "Ready" ]; then
     log "PXC Ready."
     break
+  fi
+  # Fail nhanh neu cluster roi vao error (VD: thieu unsafeFlags, sai secret)
+  # thay vi doi het 15 phut moi bao loi.
+  if [ "$STATE" = "error" ]; then
+    echo "--- Trang thai loi cua cluster1 ---" >&2
+    kubectl -n production get pxc cluster1 -o jsonpath='{.status.message}' >&2
+    echo >&2
+    die "PXC o trang thai error. Xem guide muc Xu ly su co (unsafeFlags / secret / CPU)."
   fi
   [ $((i % 6)) -eq 0 ] && log "... dang cho PXC (trang thai hien tai: ${STATE:-chua co}, lan $i/90)"
   sleep 10

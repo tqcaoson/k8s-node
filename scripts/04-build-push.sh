@@ -9,7 +9,9 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 
-need_cmd docker
+# Fail nhanh neu chua cai Docker (loi thuong gap: bo qua buoc 02 roi chay
+# thang script nay) — bao ro phai chay buoc nao thay vi loi mo ho o docker build.
+command -v docker >/dev/null 2>&1 || die "Thieu lenh 'docker' — ban da bo qua buoc 02. Hay chay: sudo ./scripts/02-install-docker.sh, dang xuat/dang nhap lai SSH (hoac 'newgrp docker'), roi chay lai script nay."
 [ -n "${IMAGE:-}" ] || die "Chua dat bien IMAGE. VD: export IMAGE=<dockerhub-user>/k8s-web-demo:v1"
 case "$IMAGE" in
   */*) ;;

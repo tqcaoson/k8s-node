@@ -15,6 +15,12 @@ K8S_USER="${SUDO_USER:-ec2-user}"
 
 [ "$(id -u)" -eq 0 ] || die "Hay chay bang sudo: sudo $0"
 
+# Neu cluster da duoc khoi tao roi, kubeadm init se loi — bao ro thay vi
+# de user doc log kubeadm. Muon lam lai tu dau: kubeadm reset (xem guide muc Go bo).
+if [ -f /etc/kubernetes/admin.conf ] && kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes >/dev/null 2>&1; then
+  die "Cluster da duoc khoi tao roi (da co /etc/kubernetes/admin.conf). Bo qua buoc nay, chay tiep 02-install-docker.sh. Neu muon khoi tao lai: kubeadm reset --force, xoa /etc/cni/net.d, roi chay lai script nay."
+fi
+
 # EC2: advertise bang IP private (API server lang nghe tren mang noi bo cua VPC).
 ADVERTISE_ADDRESS="${ADVERTISE_ADDRESS:-$(hostname -I | awk '{print $1}')}"
 export KUBECONFIG=/etc/kubernetes/admin.conf

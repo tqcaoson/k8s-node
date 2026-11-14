@@ -23,7 +23,7 @@ spec:
               app.kubernetes.io/component: pxc
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: haproxy
+              app.kubernetes.io/component: proxysql
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: pxc-operator

@@ -27,5 +27,5 @@ docker info --format 'Docker dang chay, storage driver: {{.Driver}}' 2>/dev/null
 
 echo
 log "XONG. Dang xuat SSH roi dang nhap lai (hoac chay 'newgrp docker')"
-log "de dung lenh docker khong can sudo, roi chay scripts-al2023/04-build-push.sh."
+log "de dung lenh docker khong can sudo, roi chay scripts-al2023/03-install-platform.sh."
 

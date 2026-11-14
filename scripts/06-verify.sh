@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Kiem tra toan bo he thong sau khi deploy (guide muc 12):
+# Kiem tra toan bo he thong sau khi deploy (guide muc 7):
 # trang thai resource, healthz, CRUD that qua port-forward, RWX, Galera.
+# Ky vong theo CAU HINH NHO: 1 Pod PXC, 1 Pod ProxySQL, wsrep_cluster_size=1.
 # Chay tren EC2: ./scripts/06-verify.sh
 set -uo pipefail
 source "$(dirname "$0")/common.sh"
@@ -23,10 +24,13 @@ log "=== Trang thai resource ==="
 kubectl get nodes
 kubectl -n production get pxc,pods,pvc,svc,ingress,hpa,cronjob
 
-log "=== Kiem tra PXC ==="
+log "=== Kiem tra PXC + ProxySQL ==="
 check "PXC state=Ready" bash -c '[ "$(kubectl -n production get pxc cluster1 -o jsonpath="{.status.state}")" = "Ready" ]'
-check "3 Pod PXC Running" bash -c '[ "$(kubectl -n production get pods -l app.kubernetes.io/component=pxc --field-selector=status.phase=Running --no-headers | wc -l)" = "3" ]'
-check "Galera cluster size=3" bash -c 'kubectl -n production exec cluster1-pxc-0 -c pxc -- mysql -uroot -p"PxcRoot123!" -N -e "SHOW STATUS LIKE '\''wsrep_cluster_size'\'';" | grep -q "3"'
+check "1 Pod PXC Running (cau hinh nho)" bash -c '[ "$(kubectl -n production get pods -l app.kubernetes.io/component=pxc --field-selector=status.phase=Running --no-headers | wc -l)" = "1" ]'
+check "Galera cluster size=1 (cau hinh nho: 1 node, khong co quorum that)" bash -c 'kubectl -n production exec cluster1-pxc-0 -c pxc -- mysql -uroot -p"PxcRoot123!" -N -e "SHOW STATUS LIKE '\''wsrep_cluster_size'\'';" | grep -qE "wsrep_cluster_size[[:space:]]+1$"'
+check "1 Pod ProxySQL Running" bash -c '[ "$(kubectl -n production get pods -l app.kubernetes.io/component=proxysql --field-selector=status.phase=Running --no-headers | wc -l)" = "1" ]'
+check "Service cluster1-proxysql co endpoint" bash -c '[ -n "$(kubectl -n production get endpoints cluster1-proxysql -o jsonpath="{.subsets[0].addresses[0].ip}")" ]'
+check "Noi MySQL qua ProxySQL (SELECT 1)" bash -c 'kubectl -n production exec cluster1-pxc-0 -c pxc -- mysql -h cluster1-proxysql -uroot -p"PxcRoot123!" -N -e "SELECT 1;" | grep -q 1'
 
 log "=== Kiem tra web qua port-forward + CRUD that ==="
 kubectl -n production port-forward svc/nodejs-service 3000:80 >/tmp/pf.log 2>&1 &

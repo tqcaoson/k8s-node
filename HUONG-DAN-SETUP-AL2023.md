@@ -1,11 +1,12 @@
-# Hướng dẫn setup trên 1 EC2 Amazon Linux 2023
+# Hướng dẫn setup trên 1 EC2 Amazon Linux 2023 (bản làm tay)
 
-File này là bản riêng cho **Amazon Linux 2023 (AL2023)** — thay thế các
-mục 1–4 của `HUONG-DAN-SETUP.md` chính (bản đó viết cho Ubuntu 22.04).
-Từ mục 5 trở đi (deploy DB + app, kiểm tra, NetworkPolicy, backup,
-troubleshooting, dọn dẹp) giống hệt nhau vì đều là lệnh Kubernetes —
-bạn làm theo guide chính, chỉ thay `scripts/` bằng `scripts-al2023/`
-(xem mục 5).
+File này là bản **làm tay đầy đủ, độc lập** cho **Amazon Linux 2023
+(AL2023)**: mỗi bước chạy từng lệnh có giải thích và điểm kiểm tra, từ
+EC2 trống tới khi web chạy được. Muốn chạy nhanh bằng script thì dùng
+bản shell [`HUONG-DAN-SHELL-AL2023.md`](HUONG-DAN-SHELL-AL2023.md)
+(cùng nội dung, chạy các script trong `scripts-al2023/` theo thứ tự).
+Bản cho Ubuntu 22.04 nằm ở `HUONG-DAN-SETUP.md` (cùng kiến trúc, khác
+lệnh hệ điều hành ở mục 1–4).
 
 **Những gì đã chốt cho project này:**
 - **1 EC2 duy nhất**, bạn tự tạo EC2 + Security Group (xem mục 1).
@@ -16,7 +17,24 @@ bạn làm theo guide chính, chỉ thay `scripts/` bằng `scripts-al2023/`
   và để đối chiếu — làm đúng các bước trong guide.
 - Thứ duy nhất bạn vẫn phải tự điền: **`IMAGE`** — tên image trên
   DockerHub của bạn (mục 4). Mọi env, mật khẩu test khác đã fix sẵn
-  trong project (xem mục 0 của guide chính).
+  trong project (xem mục 0).
+
+## 0. Những giá trị đã fix sẵn (đừng sửa khi chưa hiểu)
+
+| Hạng mục | Giá trị |
+| --- | --- |
+| Namespace | `production` |
+| Database / user / mật khẩu app | `appdb` / `app` / `AppPass123!` |
+| MySQL root | `PxcRoot123!` (Secret `cluster1-secrets`; các mật khẩu PXC khác trong `k8s/db/pxc-secrets.yaml`) |
+| DB_HOST app dùng | `cluster1-proxysql.production.svc.cluster.local:3306` (qua ProxySQL) |
+| Image placeholder | `my-nodejs-app:v1` (script 05 thay bằng `$IMAGE` của bạn) |
+| Domain mặc định | `<IP-public-cua-EC2>.nip.io` (script 05 tự sinh; có domain thật thì đặt `DOMAIN`) |
+| Ingress NodePort | HTTP **30080**, HTTPS **30443** |
+| K8s / Calico / metrics-server | 1.31 / v3.29.0 / v0.7.2; POD_CIDR `10.244.0.0/16` |
+| Chart | ingress-nginx 4.12.1, longhorn 1.9.0, pxc-operator 1.17.0, pxc-db 1.17.0, fluent-bit 0.48.0 |
+
+Đây là mật khẩu test, ghi thẳng trong repo để dễ học — đừng dùng cho
+production thật.
 
 ## Đặt file vào đâu
 
@@ -69,23 +87,26 @@ Chỉ cần **1 EC2 duy nhất**. Yêu cầu:
 | Hạng mục | Yêu cầu |
 | --- | --- |
 | AMI | **Amazon Linux 2023** (AMI chuẩn của AWS, kiến trúc x86_64), rỗng (chưa cài gì) |
-| Loại instance | **t3.xlarge** (4 vCPU, 16 GB) trở lên — 3 Pod PXC + Longhorn + web + ingress cùng chạy trên 1 node nên t3.large (8 GB) sẽ chật. Có điều kiện thì dùng t3.2xlarge cho thoải mái |
-| Disk | **30 GB gp3 trở lên** (đã kiểm chứng chạy được với cấu hình nhỏ; 50 GB thì thoải mái hơn). Longhorn dùng thư mục `/var/lib/longhorn` trên disk root — Longhorn tính dung lượng theo size PVC đã đặt trước (10Gi DB + 5Gi shared-data = 15Gi), nên disk chật sẽ làm volume mới bị `faulted` (xem mục 10 của guide chính) |
+| Loại instance | **t3.large** (2 vCPU, 8 GB) — vừa đủ cho cấu hình nhỏ mặc định của project. Muốn cấu hình đầy đủ (3 Pod PXC) thì dùng t3.xlarge (4 vCPU, 16 GB) trở lên |
+| Disk | **30 GB gp3 trở lên** (đã kiểm chứng chạy được với cấu hình nhỏ; 50 GB thì thoải mái hơn). Longhorn dùng thư mục `/var/lib/longhorn` trên disk root — Longhorn tính dung lượng theo size PVC đã đặt trước (10Gi DB + 5Gi shared-data + 1Gi proxydata = 16Gi), nên disk chật hoặc còn volume mồ côi sẽ làm volume mới bị `faulted` (xem mục 10) |
 | Public IP | Có (để SSH và để truy cập web qua NodePort) |
 | Security Group | Mở **22** (SSH) và **30080, 30443** (Ingress NodePort HTTP/HTTPS) từ IP của bạn (hoặc 0.0.0.0/0 nếu muốn mở rộng). Không cần mở thêm cổng nào khác vì chỉ có 1 node. **Đừng mở 3306** — MySQL chỉ truy cập trong cluster |
 
 > **Cấu hình nhỏ (mặc định của project này, cho t3.large 2 CPU/8GB):**
-> PXC **1 Pod** (`pxc.size: 1`, requests 200m) + HAProxy **1 Pod**, web
-> **2 Pod** × 100m, dispatcher 100m, `logcollector` tắt, CoreDNS giảm
-> xuống **1 replica** (`kubectl -n kube-system scale deployment coredns
-> --replicas=1`). Chỉ có **1 PVC** dữ liệu DB (`datadir-cluster1-pxc-0`).
-> Hệ quả so với guide chính: kiểm tra Galera ở mục 7 sẽ thấy
+> PXC **1 Pod** (`pxc.size: 1`, requests 200m) + ProxySQL **1 Pod**
+> (100m), web **2 Pod** × 100m, dispatcher 100m, `logcollector` tắt,
+> CoreDNS giảm xuống **1 replica** (`kubectl -n kube-system scale
+> deployment coredns --replicas=1`, làm ở mục 3). Chỉ có **1 PVC** dữ
+> liệu DB (`datadir-cluster1-pxc-0`, 10Gi) + 1 PVC ProxySQL
+> (`proxydata-cluster1-proxysql-0`, 1Gi) + 1 PVC shared
+> (`shared-data`, 5Gi RWX).
+> Hệ quả so với kiến trúc HA gốc: kiểm tra Galera ở mục 7 sẽ thấy
 > `wsrep_cluster_size=1` (không phải 3); **không có test failover**
 > (1 Pod — xóa Pod là DB ngừng tới khi Pod khởi động lại, dữ liệu vẫn
 > còn trên PVC); HPA tối đa 4 Pod nhưng Pod web thứ 4 có thể Pending vì
 > hết CPU. Muốn cấu hình đầy đủ (3 Pod PXC) thì dùng t3.xlarge trở lên
-> và trả lại `pxc.size: 3`, `haproxy.size: 2` trong
-> `k8s/db/pxc-values.yaml`.
+> và trả lại `pxc.size: 3`, `proxysql.size: 2` trong
+> `k8s/db/pxc-values.yaml` (đồng thời bỏ `unsafeFlags` nếu đủ 3 Pod).
 
 ### Copy project lên EC2
 
@@ -378,7 +399,7 @@ sudo chown $(id -u):$(id -g) $HOME/.kube/config
 Network Interface), còn việc cấp IP cho Pod, nối mạng giữa các Pod và
 enforce NetworkPolicy là việc của plugin CNI. Không có CNI, node mãi
 `NotReady` và Pod kẹt ở `Pending`. Ta chọn **Calico** vì nó hỗ trợ
-NetworkPolicy (mục 8 của guide chính) — Flannel thì không.
+NetworkPolicy (mục 8 của guide này) — Flannel thì không.
 
 Calico cài bằng 2 file: **tigera-operator** (operator quản lý vòng đời
 Calico) và **custom-resources** (cấu hình Calico, trong đó có dải IP của
@@ -417,7 +438,7 @@ sang `Ready`. `kubectl -n calico-system get pods` phải thấy các Pod
 
 ### 2.12. Cài metrics-server (để HPA đo CPU)
 
-**Tại sao:** HPA (mục 5 của guide chính) scale Pod dựa trên CPU, mà dữ
+**Tại sao:** HPA (mục 5.5 của guide này) scale Pod dựa trên CPU, mà dữ
 liệu CPU lấy từ **metrics-server** — một service thu thập metrics từ
 kubelet của từng node qua Metrics API. Không có nó, `kubectl top` lỗi
 và HPA không hoạt động.
@@ -494,11 +515,13 @@ version mà không báo lỗi quyền.
 
 ## 3. Cài nền tảng bằng Helm
 
-Mục này giống hệt guide chính (mục 3) — toàn bộ là lệnh Helm/kubectl,
-không phụ thuộc hệ điều hành. Dưới đây là các lệnh đầy đủ để bạn làm tay;
-phần giải thích chi tiết từng thành phần (Ingress Controller khác Ingress
-thế nào, Longhorn gồm những gì, Operator pattern, DaemonSet) xem ở mục 3
-của guide chính.
+Mục này toàn bộ là lệnh Helm/kubectl, không phụ thuộc hệ điều hành.
+Các thành phần: **NGINX Ingress Controller** (nhận traffic HTTP từ
+ngoài vào, qua NodePort 30080/30443), **Longhorn** (cấp volume bền cho
+Pod: ổ RWO cho MySQL, ổ RWX cho thư mục shared), **PXC Operator**
+(quản lý cluster MySQL theo kiểu Operator: bạn khai báo 1 CR
+`PerconaXtraDBCluster`, Operator tự tạo StatefulSet/Service/Secret),
+**Fluent Bit** (DaemonSet thu log toàn cluster).
 
 ```bash
 # 0. Them Helm repo:
@@ -508,11 +531,18 @@ helm repo add percona https://percona.github.io/percona-helm-charts/
 helm repo add fluent https://fluent.github.io/helm-charts
 helm repo update
 
-# 1. NGINX Ingress Controller (NodePort 30080/30443, 2 replica):
+# 0b. Giam CoreDNS xuong 1 replica (giai phong 100m CPU cho cau hinh nho).
+# Node chi co 2 CPU; he thong (Longhorn/Calico/control-plane/Ingress...)
+# da chiem ~1.5 CPU. CoreDNS mac dinh 2 replica (moi replica xin 100m) —
+# giam xuong 1 de du cho cho PXC (200m) + ProxySQL (100m) + web (2x100m).
+kubectl -n kube-system scale deployment coredns --replicas=1
+kubectl -n kube-system wait --for=condition=Available deployment/coredns --timeout=180s
+
+# 1. NGINX Ingress Controller (NodePort 30080/30443, 1 replica — cau hinh nho):
 helm install ingress-nginx ingress-nginx/ingress-nginx \
   --namespace ingress-nginx --create-namespace \
   --version 4.12.1 \
-  --set controller.replicaCount=2 \
+  --set controller.replicaCount=1 \
   --set controller.service.type=NodePort \
   --set controller.service.nodePorts.http=30080 \
   --set controller.service.nodePorts.https=30443
@@ -523,7 +553,7 @@ helm install longhorn longhorn/longhorn \
   --version 1.9.0 \
   --set defaultSettings.defaultReplicaCount=1
 
-# 3. PXC Operator (quan ly cluster MySQL o muc 5 cua guide chinh):
+# 3. PXC Operator (quan ly cluster MySQL o muc 5):
 # --set watchAllNamespaces=true la BAT BUOC: mac dinh Operator chi theo doi
 # namespace cua chinh no (WATCH_NAMESPACE=pxc-operator), CR cluster1 nam o
 # namespace production se bi bo qua hoan toan (STATUS trong, khong co event).
@@ -563,9 +593,11 @@ kubectl get crd | grep -i pxc
 
 ## 4. Build và push Docker image
 
-Giống hệt guide chính (mục 4) — toàn bộ là lệnh Docker. Dưới đây là các
-lệnh đầy đủ; phần giải thích (layer cache trong Dockerfile, repo public
-hay private, Secret docker-registry) xem ở mục 4 của guide chính.
+Toàn bộ là lệnh Docker chạy trên chính EC2 (Docker đã cài ở mục 2.14).
+Dockerfile của app dùng layer cache (copy `package*.json` và `npm ci`
+trước, copy source sau) nên build lại sau khi sửa code sẽ nhanh. Image
+đẩy lên DockerHub để K8s pull về; repo public thì K8s pull không cần
+đăng nhập, repo private thì cần Secret `dockerhub-pull` (xem dưới).
 
 ```bash
 # Dat ten image (thay <dockerhub-user> bang username DockerHub cua ban):
@@ -581,7 +613,7 @@ build. Mở DockerHub trên trình duyệt — repo `<user>/k8s-web-demo` phải
 thấy tag `v1` vừa push.
 
 **Repo private** (repo public thì bỏ qua): tạo Secret pull image trước
-khi sang mục 5 của guide chính (nên dùng access token thay vì mật khẩu:
+khi sang mục 5 của guide này (nên dùng access token thay vì mật khẩu:
 DockerHub → Account Settings → Personal Access Tokens → Generate):
 
 ```bash
@@ -604,47 +636,348 @@ kubectl create secret docker-registry dockerhub-pull \
 
 ---
 
-## 5. Từ đây trở đi: làm theo guide chính
+## 5. Deploy database + ứng dụng
 
-Mục 5 (deploy DB + app), 6 (mở web và thao tác database), 7 (kiểm tra
-toàn bộ), 8 (NetworkPolicy), 9 (backup), 10 (troubleshooting), 11 (dọn
-dẹp) trong `HUONG-DAN-SETUP.md` chính đều là lệnh Kubernetes thuần túy —
-không khác gì giữa Ubuntu và AL2023. Bạn làm theo đúng guide chính, chỉ
-cần thay 2 chỗ:
+### 5.1. Namespace + StorageClass + PVC shared
 
-1. **Mọi chỗ guide chính viết `scripts/`** → dùng **`scripts-al2023/`**.
-   Ví dụ: guide chính viết `IMAGE=... ./scripts/05-deploy.sh` thì bạn
-   chạy `IMAGE=... ./scripts-al2023/05-deploy.sh`.
-2. **User `ubuntu`** (nếu gặp) → **`ec2-user`**.
+```bash
+# Namespace production (moi thu cua app deu nam o day):
+kubectl apply -f k8s/00-namespace.yaml
 
-Ngoài ra, 2 lưu ý nhỏ khi đi qua guide chính:
+# 2 StorageClass Longhorn: longhorn-db (RWO, cho du lieu MySQL),
+# longhorn-shared (RWX, cho thu muc shared giua cac Pod):
+kubectl apply -f k8s/storage/storageclass-db.yaml
+kubectl apply -f k8s/storage/storageclass-shared.yaml
 
-- Mục 5.7: mở web tại `http://<DOMAIN>:30080` — lấy domain bằng
-  `echo $DOMAIN` sau khi đã `export DOMAIN=...` ở đầu mục 5.
-- Mục 6.4/7.3/7.8 dùng `kubectl port-forward` — chạy trên EC2 thì mở
-  `localhost` trên chính EC2; muốn mở từ máy local thì SSH kèm
-  `-L 3000:localhost:3000` (hoặc chạy port-forward qua SSH tunnel).
+# PVC shared-data 5Gi RWX: web + dispatcher + Job xu ly task dung chung
+# de luu ket qua (file /app/shared/results/task-<id>.json):
+kubectl apply -f k8s/storage/pvc-shared.yaml
+kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/shared-data -n production --timeout=300s
+```
 
-## 6. Đối chiếu mục guide ↔ script AL2023
+**Kiểm tra:** `kubectl -n production get pvc` — `shared-data` phải là
+`Bound`.
 
-| Mục (làm tay) | Script tương ứng (chạy nhanh) |
+### 5.2. Cài cluster PXC (MySQL + ProxySQL)
+
+Trước hết tạo Secret chứa mật khẩu PXC (root, xtrabackup, monitor... —
+giá trị fix sẵn trong file, xem mục 0):
+
+```bash
+kubectl apply -f k8s/db/pxc-secrets.yaml
+```
+
+Rồi cài cluster bằng Helm. File `k8s/db/pxc-values.yaml` đã chỉnh sẵn
+cho cấu hình nhỏ, có 4 điểm quan trọng (đừng sửa khi chưa hiểu):
+
+- **`fullnameOverride: cluster1`** — nếu không đặt, chart tự ghép tên
+  release + tên chart thành `cluster1-pxc-db` làm tên CR, kéo theo
+  Service `cluster1-pxc-db-proxysql` và Secret `cluster1-pxc-db-secrets`
+  (chart suy tên Secret từ fullname) — lệch với mọi lệnh trong guide
+  và với Secret `cluster1-secrets` đã tạo.
+- **`unsafeFlags: {pxcSize: true, proxySize: true}`** — Operator từ
+  chối chạy PXC dưới 3 Pod và proxy dưới 2 Pod nếu không bật 2 cờ này
+  (cluster rơi vào trạng thái `error`).
+- **ProxySQL thay HAProxy** — project này dùng ProxySQL làm proxy cho
+  MySQL. HAProxy của Operator 1.17 dùng external-check (fork script
+  kiểm tra Galera); trong môi trường này tiến trình con fork ra bị kẹt
+  spin, không chạy được script, server mãi DOWN — đã thử mọi cách config
+  (kể cả `nbthread 1`) đều không sửa được. ProxySQL tự kiểm tra MySQL
+  bằng kết nối trực tiếp nên không gặp lỗi này. Lưu ý: Operator **cấm**
+  đổi proxy trên cluster đã tạo (MySQL 8.0), nên phải dùng ProxySQL ngay
+  từ lúc cài đầu tiên.
+- **`proxysql.persistence.size: 1Gi`** — ProxySQL có PVC riêng, mặc
+  định 8Gi; trên disk 30G thì 10Gi (DB) + 5Gi (shared) + 8Gi đã là 23Gi
+  đặt trước, Longhorn không đủ chỗ tạo replica. ProxySQL chỉ lưu config
+  và thống kê nên 1Gi là đủ.
+
+```bash
+helm install cluster1 percona/pxc-db \
+  --namespace production \
+  --version 1.17.0 \
+  -f k8s/db/pxc-values.yaml
+
+# Doi cluster Ready (lan dau 5-15 phut, PXC phai khoi tao Galera):
+kubectl -n production get pxc cluster1 -w
+# Ky vong: STATUS chuyen initializing -> Ready, PXC 1, PROXYSQL 1.
+# Bam Ctrl+C de thoat watch khi thay Ready.
+```
+
+**Kiểm tra:**
+
+```bash
+kubectl -n production get pods
+# Ky vong: cluster1-pxc-0 1/1 Running, cluster1-proxysql-0 Ready.
+kubectl -n production get endpoints cluster1-proxysql
+# Ky vong: co ENDPOINTS (IP cua Pod ProxySQL). Rong nghia la ProxySQL chua Ready.
+kubectl -n production exec cluster1-pxc-0 -c pxc -- mysql -h cluster1-proxysql -uroot -p'PxcRoot123!' -e "SELECT 1;"
+# Ky vong: tra ve 1 — noi duoc MySQL qua ProxySQL.
+```
+
+Nếu `get pxc` đứng ở `initializing` quá 15 phút hoặc rơi vào `error`,
+xem mục 10 (thường gặp nhất: volume Longhorn `faulted` vì hết chỗ đặt
+trước, hoặc Pod PXC `Pending` vì hết CPU).
+
+### 5.3. Tạo database + user app (Job db-init)
+
+```bash
+# Secret app-secret chua DB_HOST/DB_USER/DB_PASSWORD cho app doc:
+kubectl apply -f k8s/app/app-secret.yaml
+
+# Job db-init tao database appdb + user app (doc mat khau tu app-secret,
+# noi MySQL qua ProxySQL):
+kubectl apply -f <(sed "s|my-nodejs-app:v1|$IMAGE|g" k8s/db/db-init-job.yaml)
+kubectl wait --for=condition=complete job/db-init -n production --timeout=600s
+kubectl -n production logs job/db-init
+# Ky vong: "[init-db] OK: database 'appdb' va user 'app' san sang."
+```
+
+Lưu ý: `sed` thay placeholder `my-nodejs-app:v1` bằng `$IMAGE` của bạn
+(đã export ở mục 4). Nếu repo DockerHub là private thì Job cần
+`imagePullSecrets` — file có sẵn marker `# __IMAGE_PULL_SECRETS__`,
+script 05 tự xử lý; làm tay thì thêm `imagePullSecrets: [{name:
+dockerhub-pull}]` vào Pod spec của Job (xem mẫu trong file).
+
+### 5.4. Migrate + seed bảng tasks (Job db-migrate)
+
+```bash
+kubectl apply -f <(sed "s|my-nodejs-app:v1|$IMAGE|g" k8s/db/migrate-job.yaml)
+kubectl wait --for=condition=complete job/db-migrate -n production --timeout=600s
+kubectl -n production logs job/db-migrate
+# Ky vong: "[migrate] OK: bang tasks san sang, hien co 5 dong."
+```
+
+Job này tạo bảng `tasks` (id, title, description, status, created_at,
+updated_at) và seed 5 dòng mẫu. Chạy lại nhiều lần vẫn an toàn
+(idempotent — migrate/seed kiểm tra trước khi tạo).
+
+### 5.5. Deploy web (Deployment + Service + Ingress + HPA)
+
+```bash
+# Domain: neu co domain that thi export truoc; khong co thi dung nip.io
+# theo IP public cua EC2 (khong can mua domain):
+export DOMAIN="$(curl -fsSL --max-time 10 ifconfig.me | tr '.' '-').nip.io"
+echo $DOMAIN
+
+# Render 2 file co placeholder (image + host) roi apply:
+# (Repo private: web-deployment.yaml cung co marker # __IMAGE_PULL_SECRETS__
+# — thay bang khoi imagePullSecrets nhu o muc 5.3, hoac dung script 05.)
+sed -e "s|my-nodejs-app:v1|$IMAGE|g" k8s/app/web-deployment.yaml | kubectl apply -f -
+kubectl apply -f k8s/app/web-service.yaml
+sed -e "s|app.example.com|$DOMAIN|g" k8s/app/web-ingress.yaml | kubectl apply -f -
+kubectl apply -f k8s/app/web-hpa.yaml
+kubectl wait --for=condition=Available deployment/nodejs-web -n production --timeout=300s
+```
+
+Web có 2 Pod (cấu hình nhỏ), mỗi Pod có 2 probe: `/healthz` (liveness —
+chỉ kiểm tra process còn sống) và `/readyz` (readiness — kiểm tra nối
+được MySQL; Pod chỉ nhận traffic khi readiness pass). HPA scale 2–4 Pod
+theo CPU; lưu ý Pod web thứ 4 có thể Pending vì hết CPU trên node 2 CPU.
+
+**Kiểm tra:**
+
+```bash
+kubectl -n production get pods -l app=nodejs-web
+# Ky vong: 2 Pod 1/1 Running.
+kubectl -n production get ingress nodejs-ingress
+# Ky vong: HOSTS = $DOMAIN.
+curl -H "Host: $DOMAIN" http://127.0.0.1:30080/readyz
+# Ky vong: {"status":"ok","db":"up",...}
+```
+
+### 5.6. CronJob dispatcher + RBAC
+
+Dispatcher chạy mỗi 5 phút: lấy task `todo` (tối đa 10 task/lần), đánh
+dấu `doing`, tạo 1 Kubernetes Job cho mỗi task để xử lý; Job xử lý xong
+thì task chuyển `done` và ghi kết quả ra thư mục shared. Dispatcher cần
+quyền tạo Job nên phải có ServiceAccount + Role riêng:
+
+```bash
+kubectl apply -f k8s/worker/dispatcher-rbac.yaml
+# (Repo private: worker-cronjob.yaml cung co marker # __IMAGE_PULL_SECRETS__ —
+# thay bang khoi imagePullSecrets nhu o muc 5.3, hoac dung script 05.)
+sed -e "s|my-nodejs-app:v1|$IMAGE|g" k8s/worker/worker-cronjob.yaml | kubectl apply -f -
+kubectl -n production get cronjob task-worker
+```
+
+→ Chạy nhanh cả mục 5: `IMAGE=$IMAGE ./scripts-al2023/05-deploy.sh`
+(thêm `--with-netpol` để bật NetworkPolicy ngay — khuyến nghị để sau
+mục 7, khi web đã chạy ổn).
+
+---
+
+## 6. Mở web và thao tác database
+
+Mở bằng trình duyệt: `http://<DOMAIN>:30080` (lấy domain bằng
+`echo $DOMAIN`). Phải thấy trang Tasks với 5 dòng seed, thêm/sửa/xóa
+được task. Task mới tạo ở trạng thái `todo` sẽ được dispatcher xử lý
+trong vòng ~5 phút (hoặc kích hoạt ngay — xem mục 7.4).
+
+Shell MySQL vào thẳng Pod PXC:
+
+```bash
+./scripts-al2023/07-db-shell.sh "SELECT id, title, status FROM tasks;"
+./scripts-al2023/07-db-shell.sh   # shell tuong tac (database mac dinh appdb)
+```
+
+Trong shell MySQL:
+
+```sql
+SHOW TABLES;
+SELECT * FROM tasks;
+SHOW STATUS LIKE 'wsrep_cluster_size';   -- ky vong: 1 (cau hinh nho)
+SHOW STATUS LIKE 'wsrep_local_state_comment';  -- ky vong: Synced
+```
+
+Port-forward để gọi API từ máy local (chạy trên EC2, mở `localhost`
+trên chính EC2; muốn mở từ máy local thì SSH kèm `-L 3000:localhost:3000`):
+
+```bash
+kubectl -n production port-forward svc/nodejs-service 3000:80
+curl http://localhost:3000/api/tasks
+```
+
+---
+
+## 7. Kiểm tra toàn bộ
+
+→ Chạy nhanh: `./scripts-al2023/06-verify.sh` (làm đúng các kiểm tra
+dưới đây, in PASS/FAIL). Phần này là bản làm tay từng kiểm tra.
+
+### 7.1. Trạng thái chung
+
+```bash
+kubectl -n production get pxc,pods,pvc,svc,ingress,hpa,cronjob
+# Ky vong: PXC Ready; PXC 1/1, ProxySQL Ready, web 2/2 Running;
+# PVC datadir + proxydata + shared-data deu Bound.
+```
+
+### 7.2. PXC + ProxySQL
+
+```bash
+kubectl -n production get pxc cluster1
+# Ky vong: STATUS Ready, ENDPOINT cluster1-proxysql.production.
+kubectl -n production get endpoints cluster1-proxysql
+# Ky vong: co ENDPOINTS (khong rong).
+kubectl -n production exec cluster1-pxc-0 -c pxc -- mysql -h cluster1-proxysql -uroot -p'PxcRoot123!' -e "SELECT 1;"
+# Ky vong: tra ve 1.
+```
+
+### 7.3. Web + CRUD
+
+```bash
+kubectl -n production port-forward svc/nodejs-service 3000:80 &
+sleep 5
+curl http://localhost:3000/healthz   # {"status":"ok",...}
+curl http://localhost:3000/readyz     # {"status":"ok","db":"up",...}
+curl http://localhost:3000/api/tasks   # 5 dong seed
+curl -X POST http://localhost:3000/api/tasks -H "Content-Type: application/json" \
+  -d '{"title":"Task test","status":"todo"}'     # tra ve task moi co id
+curl -X PUT http://localhost:3000/api/tasks/<id> -H "Content-Type: application/json" \
+  -d '{"status":"done"}'                          # status doi thanh done
+curl -X DELETE http://localhost:3000/api/tasks/<id>  # tra ve deleted
+kill %1
+```
+
+### 7.4. Dispatcher: task todo → Job → done
+
+```bash
+# Tao 1 task todo (lay id tu response):
+curl -X POST http://localhost:3000/api/tasks -H "Content-Type: application/json" \
+  -d '{"title":"Task test dispatcher","status":"todo"}'
+# Kich hoat dispatcher ngay (khong doi lich 5 phut):
+kubectl create job dispatch-test --from=cronjob/task-worker -n production
+kubectl wait --for=condition=complete job/dispatch-test -n production --timeout=300s
+# Doi Job xu ly task xong:
+kubectl wait --for=condition=complete job -l task-id=<id> -n production --timeout=300s
+curl http://localhost:3000/api/tasks/<id>   # ky vong: "status":"done"
+# Ket qua xu ly co trong shared volume:
+kubectl -n production exec deploy/nodejs-web -- cat /app/shared/results/task-<id>.json
+# Ky vong: {"result": "ok", ...}
+kubectl delete job dispatch-test -n production
+```
+
+### 7.5. Shared PVC (RWX): Pod 1 ghi, Pod 2 đọc
+
+```bash
+POD1=$(kubectl -n production get pods -l app=nodejs-web -o jsonpath='{.items[0].metadata.name}')
+POD2=$(kubectl -n production get pods -l app=nodejs-web -o jsonpath='{.items[1].metadata.name}')
+kubectl -n production exec $POD1 -- sh -c 'echo hello-rwx > /app/shared/verify.txt'
+kubectl -n production exec $POD2 -- cat /app/shared/verify.txt
+# Ky vong: hello-rwx
+```
+
+### 7.6. Galera (cấu hình nhỏ: 1 node)
+
+```bash
+kubectl -n production exec cluster1-pxc-0 -c pxc -- mysql -uroot -p'PxcRoot123!' -N -e "SHOW STATUS LIKE 'wsrep_cluster_size';"
+# Ky vong: 1. Khong co quorum that — chi de test chuc nang.
+# Test khoi dong lai (thay cho test failover 3-node): xoa Pod PXC,
+# StatefulSet tao lai Pod moi, du lieu van con tren PVC:
+kubectl -n production delete pod cluster1-pxc-0
+kubectl -n production get pods -w   # doi Pod moi 1/1 Running
+./scripts-al2023/07-db-shell.sh "SELECT COUNT(*) FROM tasks;"   # ky vong: 5 (+ task da tao)
+```
+
+### 7.7. Ingress
+
+```bash
+curl -H "Host: $DOMAIN" http://127.0.0.1:30080/readyz
+# Ky vong: {"status":"ok","db":"up",...}
+# Mo web tu trinh duyet: http://<DOMAIN>:30080
+```
+
+### 7.8. HPA
+
+```bash
+kubectl -n production get hpa nodejs-hpa
+# Ky vong: TARGETS hien CPU% (metrics-server da chay). Luu y: HPA toi da
+# 4 Pod nhung Pod web thu 4 co the Pending vi het CPU tren node 2 CPU.
+```
+
+
+---
+
+## 8. NetworkPolicy (bật cuối cùng)
+
+Bật NetworkPolicy **sau khi web đã chạy ổn** (mục 7 pass hết) — nếu bật
+sớm mà có lỗi thì khó biết lỗi do app hay do policy chặn traffic. Có 7
+policy:
+
+| File | Tác dụng |
 | --- | --- |
-| AL2023 2.1–2.8 Chuẩn bị node (dnf, SELinux, iscsi/nfs, containerd, K8s RPM, Helm) | `sudo ./scripts-al2023/00-prepare-nodes.sh` |
-| AL2023 2.9–2.13 kubeadm init + Calico + metrics-server + gỡ taint | `sudo ./scripts-al2023/01-init-control-plane.sh` |
-| AL2023 2.14 Cài Docker | `sudo ./scripts-al2023/02-install-docker.sh` |
-| AL2023 3. Cài nền tảng Helm | `./scripts-al2023/03-install-platform.sh` |
-| AL2023 4. Build + push image | `./scripts-al2023/04-build-push.sh` (cần `IMAGE` + `docker login` trước) |
-| AL2023 4. Secret repo private | `DOCKERHUB_USER=<user> ./scripts-al2023/08-dockerhub-secret.sh` |
-| Guide chính 5. Deploy DB + app | `IMAGE=... ./scripts-al2023/05-deploy.sh` (thêm `--with-netpol` để bật NetworkPolicy ngay) |
-| Guide chính 6.3 Shell MySQL | `./scripts-al2023/07-db-shell.sh ["<lenh SQL>"]` |
-| Guide chính 7. Kiểm tra toàn bộ | `./scripts-al2023/06-verify.sh` |
-| Guide chính 8. Bật NetworkPolicy | `kubectl apply -f k8s/networkpolicy/` (không có script riêng — chỉ 1 lệnh) |
-| Guide chính 11. Dọn dẹp | `./scripts-al2023/teardown.sh` |
+| `netpol-default-deny.yaml` | Chặn hết traffic vào namespace `production` mặc định |
+| `netpol-web-ingress.yaml` | Cho Ingress Controller gọi vào web |
+| `netpol-app-to-db.yaml` | Cho web gọi ProxySQL |
+| `netpol-app-egress-db.yaml` | Cho web ra ngoài tới ProxySQL (egress) |
+| `netpol-pxc-internal.yaml` | Cho ProxySQL + Operator gọi vào PXC |
+| `netpol-dispatcher-api.yaml` | Cho dispatcher gọi kube-apiserver (tạo Job) |
+| `netpol-allow-dns.yaml` | Cho mọi Pod phân giải DNS (kube-dns) |
 
-## 7. Troubleshooting riêng cho AL2023
+```bash
+kubectl apply -f k8s/networkpolicy/
+kubectl -n production get networkpolicy
+# Kiem tra lai web van chay sau khi bat policy:
+curl -H "Host: $DOMAIN" http://127.0.0.1:30080/readyz
+# Ky vong: {"status":"ok","db":"up",...} — neu timeout thi 1 policy dang chan sai.
+```
 
-(Bảng troubleshooting chung nằm ở mục 10 của guide chính. Dưới đây chỉ
-có các lỗi đặc thù AL2023.)
+---
+
+## 9. Backup
+
+Project có sẵn `k8s/backup/pxc-backup-values.yaml` (cấu hình backup PXC
+lên S3) và `k8s/backup/backup-s3-secret.yaml.example` (mẫu Secret chứa
+key S3). Backup đang **tắt** (`backup.enabled: false` trong
+`pxc-values.yaml`) vì chưa có S3 — bật khi chưa cấu hình storage sẽ làm
+Operator báo lỗi. Khi nào có bucket S3 thì điền Secret theo mẫu, đổi
+`backup.enabled: true`, rồi `helm upgrade`.
+
+---
+
+## 10. Xử lý sự cố
+
+### 10.1. Lỗi riêng AL2023
 
 | Triệu chứng | Nguyên nhân thường gặp | Cách xử lý |
 | --- | --- | --- |
@@ -658,3 +991,115 @@ có các lỗi đặc thù AL2023.)
 | `docker` báo permission denied | User chưa vào nhóm docker | Đăng xuất SSH rồi đăng nhập lại, hoặc chạy `newgrp docker` |
 | `kubectl` báo `command not found` sau khi cài | Chưa cài xong, hoặc PATH chưa có `/usr/bin` | `rpm -q kubectl` kiểm tra đã cài chưa; cài lại theo mục 2.7 |
 | `containerd config default` lỗi | containerd chưa cài, hoặc version quá mới | `rpm -q containerd` kiểm tra; AL2023 cấp containerd 2.x, lệnh trên vẫn đúng với 2.x |
+
+### 10.2. Lỗi cluster / platform
+
+| Triệu chứng | Nguyên nhân thường gặp | Cách xử lý |
+| --- | --- | --- |
+| `kubectl create -f custom-resources.yaml` lỗi `no matches for kind "Installation"` | Tigera-operator đăng ký CRD `Installation` không đồng bộ — apply custom-resources quá sớm | Đợi CRD xuất hiện + Established rồi apply lại: `kubectl wait --for=condition=Established crd/installations.operator.tigera.io --timeout=120s` |
+| Script 03 lỗi `no matching resources found` khi đợi Operator | Selector sai tên, hoặc Pod chưa được tạo kịp | Pod Operator mang label `app.kubernetes.io/name=pxc-operator` (tên chart), KHÔNG phải `percona-xtradb-cluster-operator` (tên image). Script đã sửa; làm tay thì đợi Pod xuất hiện trước rồi mới `kubectl wait` |
+| CR `cluster1` STATUS trống hoàn toàn, không event, Operator log chỉ có dòng khởi động | Operator mặc định chỉ theo dõi namespace của chính nó (`WATCH_NAMESPACE`), CR ở `production` bị bỏ qua | Cài/nâng cấp Operator với `--set watchAllNamespaces=true` |
+| `helm upgrade` Operator lỗi Service `cannot be imported into the current release` | Service webhook `percona-xtradb-cluster-operator` đã tồn tại ngoài Helm (không có label/annotation Helm) — chart chỉ render Service này khi có `watchAllNamespaces=true` | Nhận Service vào release rồi upgrade lại: `kubectl -n pxc-operator label svc percona-xtradb-cluster-operator app.kubernetes.io/managed-by=Helm` + annotate `meta.helm.sh/release-name=pxc-operator` và `meta.helm.sh/release-namespace=pxc-operator` |
+| `kubectl get nodes` chỉ thấy node `NotReady` | CNI chưa chạy (Calico chưa Ready) | `kubectl -n calico-system get pods`; đợi Calico Running rồi node sẽ Ready |
+
+### 10.3. Lỗi PXC / ProxySQL / Longhorn
+
+| Triệu chứng | Nguyên nhân thường gặp | Cách xử lý |
+| --- | --- | --- |
+| `helm install cluster1` xong nhưng `get pxc cluster1` NotFound, chỉ thấy CR `cluster1-pxc-db` | Thiếu `fullnameOverride: cluster1` — chart ghép tên release + tên chart làm tên CR, kéo theo secretsName sai | Thêm `fullnameOverride: cluster1` vào `k8s/db/pxc-values.yaml` rồi cài lại (file trong project đã có sẵn dòng này) |
+| Cluster `error`, message `PXC size must be at least 3. Set spec.unsafeFlags.pxcSize to true` | Operator từ chối chạy PXC dưới 3 Pod khi không bật cờ test | Thêm `unsafeFlags: {pxcSize: true, proxySize: true}` vào `pxc-values.yaml` (file đã có sẵn) rồi `helm upgrade`. Lưu ý cờ proxy tên là `proxySize`, không phải `haproxySize` |
+| Pod PXC `Pending` vì `Insufficient cpu` | Node 2 CPU hết chỗ: Pod PXC xin 900m (mặc định, gồm 2 sidecar logcollector) trong khi node chỉ còn ~410m trống | Cấu hình nhỏ trong project đã sửa: PXC 200m, `logcollector.enabled: false`, CoreDNS 1 replica. Đừng tăng size/resource khi chưa tính lại ngân sách CPU (`kubectl describe node` xem requests) |
+| Đổi spec PXC xong mà Pod cũ vẫn Pending mãi, CR đã mới | Operator cập nhật CR nhưng không tạo lại Pod đang Pending (SmartUpdate đợi Pod cũ) | Xóa Pod Pending tay: `kubectl -n production delete pod cluster1-pxc-0` — StatefulSet tạo lại theo template mới |
+| CR kẹt `Terminating` sau `helm uninstall` | Finalizer của Operator không được gỡ (CR chưa tạo tài nguyên nào) | Gỡ tay: `kubectl -n production patch pxc cluster1 --type=json -p='[{"op":"remove","path":"/metadata/finalizers"}]'` |
+| Pod PXC kẹt `Init:0/1`, event `FailedAttachVolume: volume is not ready for workloads`, volume Longhorn `faulted` | Longhorn tính dung lượng theo size PVC đã đặt trước (scheduled), không phải dữ liệu thực tế; volume cũ của PVC đã xóa vẫn nằm lại, cộng dồn vượt disk 30G | `kubectl -n longhorn-system get volume.longhorn.io` tìm volume mồ côi (kiểm tra không còn PV nào trỏ tới: `kubectl get pv \| grep <tên-volume>`), xóa bằng `kubectl -n longhorn-system delete volume.longhorn.io <tên-volume>`; volume mới tự tạo replica lại sau ~30s |
+| Volume `proxydata` bị `faulted` | ProxySQL PVC mặc định 8Gi, cộng với datadir 10Gi + shared 5Gi = 23Gi đặt trước trên disk 30G | `pxc-values.yaml` đã đặt `proxysql.persistence.size: 1Gi`. Nếu cluster đã tạo với 8Gi: `helm upgrade` với values mới rồi xóa StatefulSet + PVC ProxySQL để Operator tạo lại (PVC không thu nhỏ được) |
+| Operator log lỗi `for mysql version 8.0 you can't switch from HAProxy to ProxySQL` | Operator cấm đổi proxy trên cluster MySQL 8.0 đã tạo | Không sửa được bằng upgrade — phải xóa cluster và cài lại từ đầu với ProxySQL ngay từ lúc tạo (xem mục 11) |
+| (Tham khảo) HAProxy server mãi `DOWN * PROCTOUT`, Pod 1/2, Service không có endpoint | Tiến trình con fork để chạy external-check bị kẹt spin, không exec được script — lỗi của HAProxy trong môi trường này, đã thử `nbthread 1` vẫn không sửa được | Project đã chuyển sang ProxySQL nên không gặp nữa. Nếu bạn tự đổi lại HAProxy và gặp lỗi này thì đó là nguyên nhân |
+
+### 10.4. Lỗi app / deploy
+
+| Triệu chứng | Nguyên nhân thường gặp | Cách xử lý |
+| --- | --- | --- |
+| `docker: command not found` khi chạy script 04 | Bỏ qua bước 02 (cài Docker) | Chạy `sudo ./scripts-al2023/02-install-docker.sh`, đăng xuất/đăng nhập lại rồi chạy lại 04 |
+| Tạo Secret dockerhub lỗi `namespaces "production" not found` | Namespace chỉ được tạo ở mục 5.1, chưa chạy tới đó | `kubectl apply -f k8s/00-namespace.yaml` trước rồi tạo Secret lại (script 08 đã tự làm việc này) |
+| Web báo `db:down` (`/readyz` 503) | App không nối được MySQL: sai DB_HOST, ProxySQL chưa Ready, hoặc Secret sai | Kiểm tra `kubectl -n production get endpoints cluster1-proxysql` (phải có endpoint); kiểm tra `app-secret` (DB_HOST phải là `cluster1-proxysql.production.svc.cluster.local`); kiểm tra `kubectl -n production get pxc` (phải Ready) |
+| Pod web `ImagePullBackOff` | Repo private nhưng thiếu Secret, hoặc sai tên image | Repo private: tạo Secret bằng script 08 rồi deploy lại. Kiểm tra tên image: `kubectl -n production describe pod <web-pod> \| grep Image` |
+| Job db-init/db-migrate `Failed` | DB chưa Ready, hoặc sai DB_HOST/mật khẩu | Xem log: `kubectl -n production logs job/db-init`. Đợi PXC Ready rồi xóa Job và chạy lại (`kubectl delete job db-init -n production` rồi apply lại) |
+| Dispatcher không tạo Job | CronJob chưa tới lịch (5 phút/lần), hoặc RBAC thiếu quyền | Kích hoạt tay: `kubectl create job <tên> --from=cronjob/task-worker -n production`; kiểm tra Role `task-dispatcher` có quyền `create jobs` |
+| HPA Pod web thứ 4 `Pending` | Hết CPU trên node 2 CPU | Bình thường với cấu hình nhỏ — HPA tối đa 4 Pod nhưng node chỉ đủ chỗ cho ~3 Pod web. Muốn đủ 4 Pod thì dùng instance lớn hơn |
+
+---
+
+## 11. Dọn dẹp và cài lại
+
+### 11.1. Dọn sạch toàn bộ (teardown)
+
+```bash
+./scripts-al2023/teardown.sh --yes
+# Xoa app + PXC + platform + volume Longhorn mo coi + PV Released.
+# Cluster K8s van giu nguyen — chay lai tu buoc 3 (muc 3) neu muon dung lai.
+```
+
+Làm tay (đúng thứ tự teardown làm): xóa app/worker/netpol/Job →
+`helm uninstall cluster1` (CR kẹt Terminating thì patch gỡ finalizer,
+xem mục 10.3) → xóa PVC datadir + proxydata + shared + StorageClass →
+xóa namespace `production` → xóa PV Released thuộc `production` → xóa
+volume Longhorn mồ côi (không còn PV nào trỏ tới) → `helm uninstall`
+fluent-bit, pxc-operator, longhorn, ingress-nginx.
+
+Muốn dọn cả cluster K8s (về EC2 trống):
+
+```bash
+sudo kubeadm reset --force
+sudo rm -rf /etc/cni/net.d /var/lib/longhorn
+sudo rm -rf $HOME/.kube/config
+```
+
+### 11.2. Chỉ cài lại PXC (giữ nguyên platform)
+
+```bash
+helm uninstall cluster1 -n production
+kubectl -n production delete pvc datadir-cluster1-pxc-0 proxydata-cluster1-proxysql-0
+# Kiem tra + xoa volume Longhorn mo coi neu con:
+kubectl -n longhorn-system get volume.longhorn.io
+kubectl -n longhorn-system delete volume.longhorn.io <ten-volume-cu>  # neu co
+helm install cluster1 percona/pxc-db --namespace production --version 1.17.0 -f k8s/db/pxc-values.yaml
+kubectl -n production get pods -w   # doi cluster1-pxc-0 1/1 va cluster1-proxysql-0 Ready
+# Chay lai tu muc 5.3 (db-init) tro di — app-secret da co, Job cu da xoa.
+```
+
+---
+
+## Phụ lục A. Đối chiếu mục guide ↔ script AL2023
+
+| Mục (làm tay) | Script tương ứng (chạy nhanh) |
+| --- | --- |
+| 2.1–2.8 Chuẩn bị node (dnf, SELinux, iscsi/nfs, containerd, K8s RPM, Helm) | `sudo ./scripts-al2023/00-prepare-nodes.sh` |
+| 2.9–2.13 kubeadm init + Calico + metrics-server + gỡ taint | `sudo ./scripts-al2023/01-init-control-plane.sh` |
+| 2.14 Cài Docker | `sudo ./scripts-al2023/02-install-docker.sh` |
+| 3. Cài nền tảng Helm (+ CoreDNS 1 replica) | `./scripts-al2023/03-install-platform.sh` |
+| 4. Build + push image | `./scripts-al2023/04-build-push.sh` (cần `IMAGE` + `docker login` trước) |
+| 4. Secret repo private | `DOCKERHUB_USER=<user> ./scripts-al2023/08-dockerhub-secret.sh` |
+| 5. Deploy DB + app | `IMAGE=... ./scripts-al2023/05-deploy.sh` (thêm `--with-netpol` để bật NetworkPolicy ngay) |
+| 6. Shell MySQL | `./scripts-al2023/07-db-shell.sh ["<lenh SQL>"]` |
+| 7. Kiểm tra toàn bộ | `./scripts-al2023/06-verify.sh` |
+| 8. Bật NetworkPolicy | `kubectl apply -f k8s/networkpolicy/` (không có script riêng — chỉ 1 lệnh) |
+| 11. Dọn dẹp | `./scripts-al2023/teardown.sh` |
+
+## Phụ lục B. Kiến trúc (tóm tắt)
+
+```text
+Internet -> Security Group (30080/30443) -> NodePort Service
+  -> NGINX Ingress Controller (1 Pod) -> Ingress nodejs-ingress
+  -> Service nodejs-service -> web Deployment (2 Pod, HPA 2-4)
+  -> Secret app-secret (DB_HOST) -> Service cluster1-proxysql
+  -> ProxySQL (1 Pod) -> PXC MySQL (1 Pod, PVC longhorn-db 10Gi)
+CronJob task-worker (5 phut/lan) -> Job xu ly task (1 Job/task)
+  -> ket qua ghi vao PVC shared-data (RWX 5Gi, Longhorn)
+Fluent Bit (DaemonSet) thu log toan cluster.
+```
+
+**Giới hạn của cấu hình nhỏ (đã nói ở mục 1):** 1 node duy nhất nên
+không có HA thật — mất node là mất hết; PXC 1 Pod nên không có quorum
+Galera, mất Pod là DB ngừng tới khi Pod khởi động lại (dữ liệu vẫn còn
+trên PVC). Đây là môi trường test/học, không phải production.

@@ -29,6 +29,16 @@ chown "$K8S_USER:$K8S_USER" "/home/$K8S_USER/.kube/config"
 
 log "3/5 Cai Calico $CALICO_VERSION (CNI ho tro NetworkPolicy)..."
 kubectl create -f "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+# Operator cai CRD Installation khong dong bo (Pod operator khoi dong xong
+# moi dang ky CRD). Phai doi CRD xuat hien + Established roi moi apply
+# custom-resources, neu khong se loi "no matches for kind Installation".
+log "Doi CRD Installation cua Calico (toi da ~150s)..."
+for i in $(seq 1 30); do
+  kubectl get crd installations.operator.tigera.io >/dev/null 2>&1 && break
+  [ "$i" -eq 30 ] && die "CRD installations.operator.tigera.io khong xuat hien sau 150s. Kiem tra: kubectl -n tigera-operator get pods"
+  sleep 5
+done
+kubectl wait --for=condition=Established crd/installations.operator.tigera.io --timeout=120s
 curl -fsSL "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/custom-resources.yaml" \
   | sed "s|192.168.0.0/16|${POD_CIDR}|" \
   | kubectl create -f -
