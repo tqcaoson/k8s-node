@@ -1,0 +1,15 @@
+# StorageClass cho database (RWO) — BAN LOCAL (minikube, Windows).
+# Giu nguyen TEN "longhorn-db" nhu ban EC2 de k8s/db/pxc-values.yaml
+# (pxc.persistence.storageClass: longhorn-db) khong can sua — chi doi
+# provisioner sang k8s.io/minikube-hostpath (storage mac dinh cua minikube).
+# Local khong cai Longhorn (nang, ~1GB RAM) vi minikube da co san
+# provisioner nhe nay; tren 1 node thi hostpath du dung cho test.
+# reclaimPolicy Delete (ban EC2 la Retain): xoa PVC la PV bien mat theo,
+# khoi phai don PV Released tay khi teardown local.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-db
+provisioner: k8s.io/minikube-hostpath
+reclaimPolicy: Delete
+volumeBindingMode: Immediate

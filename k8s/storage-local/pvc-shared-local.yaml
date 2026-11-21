@@ -1,0 +1,18 @@
+# PVC dung chung cho Web va Job — BAN LOCAL (minikube, Windows).
+# Giong ban EC2 (shared-data, 5Gi, class longhorn-shared) nhung doi
+# accessModes tu ReadWriteMany sang ReadWriteOnce vi provisioner
+# minikube-hostpath khong ho tro RWX. Tren 1 node duy nhat, RWO van
+# mount duoc cho nhieu Pod cung luc (web + Job xu ly task) vi tat ca
+# deu chay tren cung node — chuc nang khong doi so voi EC2.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-data
+  namespace: production
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn-shared
+  resources:
+    requests:
+      storage: 5Gi

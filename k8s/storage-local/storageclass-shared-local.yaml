@@ -1,0 +1,14 @@
+# StorageClass cho shared storage — BAN LOCAL (minikube, Windows).
+# Giu nguyen TEN "longhorn-shared" nhu ban EC2 de PVC shared-data khong
+# can sua ten class — chi doi provisioner sang k8s.io/minikube-hostpath.
+# Luu y: minikube-hostpath chi ho tro RWO (khong ho tro RWX nhu Longhorn),
+# nen PVC shared-data ban local dung RWO (xem pvc-shared-local.yaml).
+# Tren 1 node duy nhat, RWO van mount duoc cho nhieu Pod cung luc vi tat
+# ca Pod deu chay tren cung node do — chuc nang khong doi so voi EC2.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-shared
+provisioner: k8s.io/minikube-hostpath
+reclaimPolicy: Delete
+volumeBindingMode: Immediate

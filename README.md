@@ -24,6 +24,7 @@ năng; không phải HA thật (xem lưu ý cuối README).
 | **[HUONG-DAN-SHELL-AL2023.md](HUONG-DAN-SHELL-AL2023.md)** | Muốn chạy nhanh: chạy các script `scripts-al2023/` theo thứ tự |
 | **[HUONG-DAN-SETUP-AL2023.md](HUONG-DAN-SETUP-AL2023.md)** | Muốn hiểu K8s: chạy tay từng lệnh có giải thích (AL2023) |
 | **[HUONG-DAN-SETUP.md](HUONG-DAN-SETUP.md)** | Dùng Ubuntu 22.04 (bản làm tay; script trong `scripts/`) |
+| **[HUONG-DAN-CHAY-LOCAL-WINDOWS.md](HUONG-DAN-CHAY-LOCAL-WINDOWS.md)** | Chạy trên laptop Windows 11 + Docker Desktop + minikube (8GB RAM) |
 
 ## Kiến trúc (tất cả trên 1 EC2)
 
@@ -135,6 +136,9 @@ app/                  Source Node.js (Express + mysql2)
   Dockerfile
 k8s/                  Manifest theo guide (namespace, storage, PXC, app,
                       worker, networkpolicy, logging, backup) + kustomization
+k8s/storage-local/    Bien the storage cho chay local minikube (2 StorageClass
+                      cung ten longhorn-db/longhorn-shared nhung dung
+                      minikube-hostpath, PVC shared-data ban RWO)
 scripts-al2023/       Script chay nhanh cho Amazon Linux 2023:
                       00-prepare -> 01-init -> 02-docker -> 03-platform
                       -> 04-build-push -> 05-deploy -> 06-verify
@@ -144,6 +148,7 @@ docker-compose.yml    Test local: MySQL 8.0 + app
 HUONG-DAN-SHELL-AL2023.md   Guide chay nhanh bang shell (AL2023)
 HUONG-DAN-SETUP-AL2023.md   Guide lam tay tung lenh (AL2023)
 HUONG-DAN-SETUP.md          Guide lam tay tung lenh (Ubuntu 22.04)
+HUONG-DAN-CHAY-LOCAL-WINDOWS.md  Guide chay local tren Windows 11 + minikube
 ```
 
 ## Khác biệt so với guide gốc (đều có ghi chú trong file)
